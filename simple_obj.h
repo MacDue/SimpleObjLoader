@@ -13,6 +13,22 @@
 #define OBJ_VERTEX_NORMAL "vn"
 #define OBJ_VERTEX_TEX_CORD "vt"
 
+/* Simple Obj Loader
+
+   v0.1
+   Author: MacDue
+   License: Unlicense
+
+   Loading and drawing Wavefront .obj files.
+   Supports a subset of the full .obj formal.
+
+   - Vertices (v)
+   - Vertex normals (vn)
+   - Texture coordinates (vt)
+   - Faces (f)
+   - Simple uncached drawing
+*/
+
 typedef struct DataArray {
   void* data;
   int len;
@@ -46,7 +62,8 @@ typedef struct SimpleObj {
   DataArray_t/*<int>*/ lines;
 } SimpleObj_t;
 
-SimpleObj_t* loadObj(char* file_name, int lineBufferSize);
+SimpleObj_t* loadObj(char* file_name);
+void disposeObj(SimpleObj_t* obj);
 void drawObj(SimpleObj_t* obj);
 
 // Will write to returnArray.
@@ -71,11 +88,11 @@ parseArray_ ## arrayType_t                                        \
   return doubleData.nextIndex;                                    \
 }
 
-const char extra_delims[] = {'/', '\0'};
-
 #endif
 
 #ifdef SIMPLE_OBJ_IMP
+
+static const char extra_delims[] = {'/', '\0'};
 
 // Sadly needed to fix strtol
 static void replaceDelims(char* str) {
@@ -91,7 +108,7 @@ static void replaceDelims(char* str) {
   }
 }
 
-static void* dataArrayAccess(DataArray_t* dataArray, int index) {
+static inline void* dataArrayAccess(DataArray_t* dataArray, int index) {
   return (void*)((size_t)dataArray->data+index*dataArray->typeSize);
 }
 
@@ -110,6 +127,10 @@ dataArrayAppend (DataArray_t* dataArray, void* data) {
   );
   dataArray->nextIndex++;
   return dataArray;
+}
+
+static inline void dataArrayDispose(DataArray_t* dataArray) {
+  free(dataArray->data);
 }
 
 static DataArray_t*
@@ -138,10 +159,18 @@ static SimpleObj_t* newSimpleObj(void) {
 
 static long longDataBuffer[4];
 static double dataInputBuffer[4];
-SimpleObj_t* loadObj(char* file_name, int lineBufferSize) {
+
+/*
+  Load a Wavefront .obj file.
+
+  @param char* a path to a .obj
+  @return SimpleObj_t* a pointer to a loaded .obj
+                       or NULL if the file could not be opened.
+*/
+SimpleObj_t* loadObj(char* fileName) {
 
   FILE *obj_fp;
-  obj_fp = fopen (file_name,"r");
+  obj_fp = fopen (fileName, "r");
   if (obj_fp == NULL)
   {
     fprintf(stderr, "Unable to open obj file.\n");
@@ -149,14 +178,12 @@ SimpleObj_t* loadObj(char* file_name, int lineBufferSize) {
   }
 
   SimpleObj_t* obj = newSimpleObj();
-  char lineBuffer[lineBufferSize];
   size_t lineLen;
   char* line = NULL;
-  int len = 0;
+  size_t len = 0;
 
   while ((lineLen = getline(&line, &len, obj_fp)) != -1) {
-    strcpy(lineBuffer, line);
-    char* lineType = strtok(lineBuffer, " ");
+    char* lineType = strtok(line, " ");
     char* remaining = strtok(NULL, "\n");
     if (lineType == NULL || remaining == NULL) {
       /* Junk */
@@ -216,6 +243,7 @@ SimpleObj_t* loadObj(char* file_name, int lineBufferSize) {
     }
   }
 
+  free(line);
   fclose (obj_fp);
 
   #ifdef DEBUG
@@ -226,8 +254,32 @@ SimpleObj_t* loadObj(char* file_name, int lineBufferSize) {
   return obj;
 }
 
+/**
+  Freeing allocations & cleaning up after an obj.
+
+  @param SimpleObj_t* a pointer to an obj
+*/
+void disposeObj(SimpleObj_t* obj) {
+  dataArrayDispose(&obj->vertices);
+  dataArrayDispose(&obj->texCoords);
+  dataArrayDispose(&obj->normals);
+  int f;
+  for (f = 0; f < obj->faces.nextIndex; f++) {
+    dataArrayDispose((DataArray_t*)dataArrayAccess(&obj->faces, f));
+  }
+  dataArrayDispose(&obj->faces);
+  dataArrayDispose(&obj->lines);
+  free(obj);
+}
+
 #ifdef __GLUT_H__
 
+/**
+  Naively drawing a loaded obj.
+  Probably works with more than libglut/libGL but is untested with anything.
+
+  @param SimpleObj_t* a pointer to an obj
+*/
 void drawObj(SimpleObj_t* obj) {
   int f;
   for (f = 0; f < obj->faces.nextIndex; f++) {
