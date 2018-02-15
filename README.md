@@ -1,4 +1,5 @@
-####  A really simple single header .obj with glut support.
+### Simple Obj Loader
+####  A really simple single header Wavefront .obj loader with glut support.
 
 Including:
 ```c
@@ -9,21 +10,28 @@ Including:
 #include "simple_obj.h"
 ```
 
-
+##### Full docs:
 Usage:
 
 ```c
-// Loading an .obj
-// 256 is the line input buffer size
-SimpleObj_t* myObj = loadObj("some_model.obj", 256);
+// Loading a .obj
+SimpleObj_t* myObj = loadObj("some_model.obj");
 ```
 
 Drawing:
 ```c
 // GL setup stuff, transforms, ect...
 drawObj(myObj);
-// More gl stuff
+// More GL stuff
 ```
+
+Freeing obj data:
+```c
+// This obj is trash
+disposeObj(myObj);
+// It's where it belongs now
+```
+
 
 Working:
 
@@ -37,4 +45,8 @@ Todo:
 - Separate group rendering
 - Materials
 - Maybe support some more obj features
-- Clean up and free stuff
+- ~~Clean up and free stuff~~ (done)
+
+##### Example result:
+
+![alt text](https://i.imgur.com/ozT39Jh.png "Future gun")
