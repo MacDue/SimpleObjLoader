@@ -27,8 +27,14 @@ drawObj(myObj);
 
 Working:
 
-- Vertices 
+- Vertices
 - Normals
 - Texture coords
 - Faces
 - Basic rendering
+
+Todo:
+- Separate group rendering
+- Materials
+- Maybe support some more obj features
+- Clean up and free stuff
