@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <ctype.h>
 
 #define OBJ_COMMENT "#"
 #define OBJ_VERTEX "v"
@@ -15,7 +17,7 @@
 
 /* Simple Obj Loader
 
-   v0.1
+   v0.1.1
    Author: MacDue
    License: Unlicense
 
@@ -108,6 +110,15 @@ static void replaceDelims(char* str) {
   }
 }
 
+// Needed to check trailing whitespace on faces
+static bool strIsSpace(char* str) {
+  while (*str) {
+    if (!isspace(*str)) return false;
+    str++;
+  }
+  return true;
+}
+
 static inline void* dataArrayAccess(DataArray_t* dataArray, int index) {
   return (void*)((size_t)dataArray->data+index*dataArray->typeSize);
 }
@@ -196,27 +207,27 @@ SimpleObj_t* loadObj(char* fileName) {
       /* Vertices */
       int vertexLen = parseArray_double(remaining, 4, dataInputBuffer);
       assert(vertexLen == 3 || vertexLen == 4);
-      ObjVertex_t vertex = { dataInputBuffer[0],
-                             dataInputBuffer[1],
-                             dataInputBuffer[2],
-                             vertexLen == 4 ? dataInputBuffer[3] : 1 };
+      ObjVertex_t vertex = { .x = dataInputBuffer[0],
+                             .y = dataInputBuffer[1],
+                             .z = dataInputBuffer[2],
+                             .w = vertexLen == 4 ? dataInputBuffer[3] : 1 };
       dataArrayAppend(&obj->vertices, &vertex);
     } else if (strcmp(lineType, OBJ_VERTEX_NORMAL) == 0) {
       /* Normals */
       int normalLen = parseArray_double(remaining, 3, dataInputBuffer);
       assert(normalLen == 3);
-      ObjVertexNormal_t normal = { dataInputBuffer[0],
-                                   dataInputBuffer[1],
-                                   dataInputBuffer[2] };
+      ObjVertexNormal_t normal = { .x = dataInputBuffer[0],
+                                   .y = dataInputBuffer[1],
+                                   .z = dataInputBuffer[2] };
       dataArrayAppend(&obj->normals, &normal);
     } else if (strcmp(lineType, OBJ_VERTEX_TEX_CORD) == 0) {
       /* Texture coordinates */
       int textCoordLen = parseArray_double(remaining, 3, dataInputBuffer);
       assert(textCoordLen == 2 || textCoordLen == 3);
-      ObjTextCoord_t texCoord = { dataInputBuffer[0],
-                                  dataInputBuffer[1],
-                                  textCoordLen > 2 ?
-                                  dataInputBuffer[2] : 0};
+      ObjTextCoord_t texCoord = { .u = dataInputBuffer[0],
+                                  .v = dataInputBuffer[1],
+                                  .w = textCoordLen > 2
+                                        ? dataInputBuffer[2] : 0};
       dataArrayAppend(&obj->texCoords, &texCoord);
     } else if (strcmp(lineType, OBJ_FACE) == 0) {
       /* Faces */
@@ -224,13 +235,13 @@ SimpleObj_t* loadObj(char* fileName) {
       // Most faces seem to have at most 4 vertices.
       initDataArray(&face, sizeof(ObjFaceComponent_t), 4, NULL);
       char* faceComponentStr = strtok(remaining, " ");
-      while (faceComponentStr != NULL) {
+      while (faceComponentStr != NULL && !strIsSpace(faceComponentStr)) {
         int faceCompLen = parseArray_long(faceComponentStr, 3, longDataBuffer);
         assert(faceCompLen >= 1 && faceCompLen <= 3);
-        ObjFaceComponent_t faceComponent = { longDataBuffer[0],
-                                             faceCompLen > 1 ?
+        ObjFaceComponent_t faceComponent = { .vertexIndex = longDataBuffer[0],
+                                             .texCoordIndex = faceCompLen > 1 ?
                                               longDataBuffer[1] : -1,
-                                             faceCompLen > 2 ?
+                                             .normalIndex = faceCompLen > 2 ?
                                               longDataBuffer[2] : -1};
         dataArrayAppend(&face, &faceComponent);
         faceComponentStr = strtok(NULL, " ");
@@ -289,12 +300,12 @@ void drawObj(SimpleObj_t* obj) {
     for (f_c = 0; f_c < face->nextIndex; f_c++) {
       ObjFaceComponent_t* faceComp = dataArrayAccess(face, f_c);
       ObjVertex_t* vertex = dataArrayAccess(&obj->vertices, faceComp->vertexIndex-1);
-      if (faceComp->normalIndex > -1) {
+      if (faceComp->normalIndex > 0) {
         ObjVertexNormal_t* normal
           = dataArrayAccess(&obj->normals, faceComp->normalIndex-1);
         glNormal3d(normal->x, normal->y, normal->z);
       }
-      if (faceComp->texCoordIndex > -1) {
+      if (faceComp->texCoordIndex > 0) {
         ObjTextCoord_t* textCoord
           = dataArrayAccess(&obj->texCoords, faceComp->texCoordIndex-1);
         glTexCoord3d(textCoord->u, textCoord->v, textCoord->w);
