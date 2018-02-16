@@ -17,7 +17,7 @@
 
 /* Simple Obj Loader
 
-   v0.1.1
+   v0.1.2
    Author: MacDue
    License: Unlicense
 
@@ -48,9 +48,9 @@ typedef struct ObjVertex {
   double x, y, z, w;
 } ObjVertex_t;
 
-typedef struct ObjTextCoord {
+typedef struct ObjTexCoord {
   double u, v, w;
-} ObjTextCoord_t;
+} ObjTexCoord_t;
 
 typedef struct ObjVertexNormal {
   double x, y, z;
@@ -58,7 +58,7 @@ typedef struct ObjVertexNormal {
 
 typedef struct SimpleObj {
   DataArray_t/*<ObjVertex_t>*/ vertices;
-  DataArray_t/*<ObjTextCoord_t>*/ texCoords;
+  DataArray_t/*<ObjTexCoord_t>*/ texCoords;
   DataArray_t/*<ObjVertexNormal_t>*/ normals;
   DataArray_t/*<DataArray_t<ObjFaceComponent_t>*/ faces;
   DataArray_t/*<int>*/ lines;
@@ -160,8 +160,7 @@ STANDARD_ARRAY_PARSER(long, strtol(previous, &next, 10))
 static SimpleObj_t* newSimpleObj(void) {
   SimpleObj_t* obj = malloc(sizeof (SimpleObj_t));
   initDataArray(&obj->vertices, sizeof (ObjVertex_t), 100, NULL);
-  // WRONG CHANGE TO TEXTCOORD STRUCT WHEN MADE
-  initDataArray(&obj->texCoords, sizeof (double*), 100, NULL);
+  initDataArray(&obj->texCoords, sizeof (ObjTexCoord_t), 100, NULL);
   initDataArray(&obj->normals, sizeof (ObjVertexNormal_t), 100, NULL);
   initDataArray(&obj->faces, sizeof (DataArray_t), 100, NULL);
   initDataArray(&obj->lines, sizeof (int*), 100, NULL);
@@ -224,9 +223,9 @@ SimpleObj_t* loadObj(char* fileName) {
       /* Texture coordinates */
       int textCoordLen = parseArray_double(remaining, 3, dataInputBuffer);
       assert(textCoordLen == 2 || textCoordLen == 3);
-      ObjTextCoord_t texCoord = { .u = dataInputBuffer[0],
-                                  .v = dataInputBuffer[1],
-                                  .w = textCoordLen > 2
+      ObjTexCoord_t texCoord = { .u = dataInputBuffer[0],
+                                 .v = dataInputBuffer[1],
+                                 .w = textCoordLen > 2
                                         ? dataInputBuffer[2] : 0};
       dataArrayAppend(&obj->texCoords, &texCoord);
     } else if (strcmp(lineType, OBJ_FACE) == 0) {
@@ -234,15 +233,25 @@ SimpleObj_t* loadObj(char* fileName) {
       DataArray_t face = {};
       // Most faces seem to have at most 4 vertices.
       initDataArray(&face, sizeof(ObjFaceComponent_t), 4, NULL);
+      bool vertexAndNormalOnly = strstr(remaining, "//");
+      int vnIndexBuff = vertexAndNormalOnly ? 1 : 2;
       char* faceComponentStr = strtok(remaining, " ");
       while (faceComponentStr != NULL && !strIsSpace(faceComponentStr)) {
         int faceCompLen = parseArray_long(faceComponentStr, 3, longDataBuffer);
         assert(faceCompLen >= 1 && faceCompLen <= 3);
+        // Length 1 = vertex
+        // Length 2 = vertex//normal or vertex/tex
+        // Length 3 = vertex/tex/normal
         ObjFaceComponent_t faceComponent = { .vertexIndex = longDataBuffer[0],
-                                             .texCoordIndex = faceCompLen > 1 ?
-                                              longDataBuffer[1] : -1,
-                                             .normalIndex = faceCompLen > 2 ?
-                                              longDataBuffer[2] : -1};
+                                             .texCoordIndex
+                                                = faceCompLen > 1
+                                                    && !vertexAndNormalOnly
+                                                  ? longDataBuffer[1] : -1,
+                                             .normalIndex
+                                                = vnIndexBuff < faceCompLen
+                                                  ? longDataBuffer[vnIndexBuff]
+                                                  : -1
+                                            };
         dataArrayAppend(&face, &faceComponent);
         faceComponentStr = strtok(NULL, " ");
       }
@@ -258,8 +267,11 @@ SimpleObj_t* loadObj(char* fileName) {
   fclose (obj_fp);
 
   #ifdef DEBUG
-  printf("Loaded obj: vertices %d, normals %d, faces %d\n",
-      obj->vertices.nextIndex, obj->normals.nextIndex, obj->faces.nextIndex);
+  printf("Loaded obj: vertices %d, texture coords %d, normals %d, faces %d\n",
+          obj->vertices.nextIndex,
+          obj->texCoords.nextIndex,
+          obj->normals.nextIndex,
+          obj->faces.nextIndex);
   #endif
 
   return obj;
@@ -299,16 +311,17 @@ void drawObj(SimpleObj_t* obj) {
     int f_c;
     for (f_c = 0; f_c < face->nextIndex; f_c++) {
       ObjFaceComponent_t* faceComp = dataArrayAccess(face, f_c);
-      ObjVertex_t* vertex = dataArrayAccess(&obj->vertices, faceComp->vertexIndex-1);
+      ObjVertex_t* vertex
+        = dataArrayAccess(&obj->vertices, faceComp->vertexIndex-1);
       if (faceComp->normalIndex > 0) {
         ObjVertexNormal_t* normal
           = dataArrayAccess(&obj->normals, faceComp->normalIndex-1);
         glNormal3d(normal->x, normal->y, normal->z);
       }
       if (faceComp->texCoordIndex > 0) {
-        ObjTextCoord_t* textCoord
+        ObjTexCoord_t* texCoord
           = dataArrayAccess(&obj->texCoords, faceComp->texCoordIndex-1);
-        glTexCoord3d(textCoord->u, textCoord->v, textCoord->w);
+        glTexCoord3d(texCoord->u, texCoord->v, texCoord->w);
       }
       glVertex4d(vertex->x, vertex->y, vertex->z, vertex->w);
     }
