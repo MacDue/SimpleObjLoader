@@ -14,10 +14,11 @@
 #define OBJ_FACE "f"
 #define OBJ_VERTEX_NORMAL "vn"
 #define OBJ_VERTEX_TEX_CORD "vt"
+#define OBJ_GROUP "g"
 
 /* Simple Obj Loader
 
-   v0.1.2
+   v0.2.0
    Author: MacDue
    License: Unlicense
 
@@ -28,15 +29,16 @@
    - Vertex normals (vn)
    - Texture coordinates (vt)
    - Faces (f)
+   - Groups (g)
    - Simple uncached drawing
 */
 
-typedef struct DataArray {
+typedef struct ObjDataArray {
   void* data;
   int len;
   int nextIndex;
   int typeSize;
-} DataArray_t;
+} ObjDataArray_t;
 
 typedef struct ObjFaceComponent {
   int vertexIndex;
@@ -56,17 +58,26 @@ typedef struct ObjVertexNormal {
   double x, y, z;
 } ObjVertexNormal_t;
 
+typedef struct ObjGroup {
+  char* name;
+  int startFace;
+  int endFace;
+  bool render;
+} ObjGroup_t;
+
 typedef struct SimpleObj {
-  DataArray_t/*<ObjVertex_t>*/ vertices;
-  DataArray_t/*<ObjTexCoord_t>*/ texCoords;
-  DataArray_t/*<ObjVertexNormal_t>*/ normals;
-  DataArray_t/*<DataArray_t<ObjFaceComponent_t>*/ faces;
-  DataArray_t/*<int>*/ lines;
+  ObjDataArray_t/*<ObjVertex_t>*/ vertices;
+  ObjDataArray_t/*<ObjTexCoord_t>*/ texCoords;
+  ObjDataArray_t/*<ObjVertexNormal_t>*/ normals;
+  ObjDataArray_t/*<ObjDataArray_t<ObjFaceComponent_t>*/ faces;
+  ObjDataArray_t/*<ObjGroup_t>*/ groups;
+  // ObjDataArray_t/*<int>*/ lines; Not implemented.
 } SimpleObj_t;
 
 SimpleObj_t* loadObj(char* file_name);
 void disposeObj(SimpleObj_t* obj);
 void drawObj(SimpleObj_t* obj);
+void* objDataArrayAccess(ObjDataArray_t* objDataArray, int index);
 
 // Will write to returnArray.
 #define STANDARD_ARRAY_PARSER(arrayType_t, strtoFunc)             \
@@ -74,8 +85,8 @@ static int                                                        \
 parseArray_ ## arrayType_t                                        \
 (char* arrayStr, int minSize, arrayType_t* returnArray) {         \
   replaceDelims(arrayStr);                                        \
-  DataArray_t doubleData = {};                                    \
-  initDataArray(                                                  \
+  ObjDataArray_t doubleData = {};                                 \
+  initObjDataArray(                                               \
     &doubleData, sizeof (arrayType_t), minSize, returnArray);     \
   char* next = NULL;                                              \
   char* previous = arrayStr;                                      \
@@ -85,7 +96,7 @@ parseArray_ ## arrayType_t                                        \
       break;                                                      \
     }                                                             \
     previous = next;                                              \
-    dataArrayAppend(&doubleData,&d);                              \
+    objDataArrayAppend(&doubleData,&d);                           \
   }                                                               \
   return doubleData.nextIndex;                                    \
 }
@@ -119,38 +130,49 @@ static bool strIsSpace(char* str) {
   return true;
 }
 
-static inline void* dataArrayAccess(DataArray_t* dataArray, int index) {
-  return (void*)((size_t)dataArray->data+index*dataArray->typeSize);
+/**
+  Access a element in a one of the objs arrays.
+  You must cast the result to the type you were accssing e.g. ObjVertex_t*.
+
+  @param ObjDataArray_t* objDataArray An array e.g. obj->vertices
+  @param int             index        An index into that array
+
+  @return void* The accessed element
+*/
+inline void* objDataArrayAccess(ObjDataArray_t* objDataArray, int index) {
+  return (void*)((size_t)objDataArray->data+index*objDataArray->typeSize);
 }
 
-static DataArray_t*
-dataArrayAppend (DataArray_t* dataArray, void* data) {
+static ObjDataArray_t*
+objDataArrayAppend (ObjDataArray_t* objDataArray, void* data) {
   // Type safey is for the weak.
-  if (dataArray->nextIndex >= dataArray->len) {
-    int newLen = dataArray->len * 2;
-    dataArray->data = realloc(dataArray->data, newLen * dataArray->typeSize);
-    dataArray->len = newLen;
+  if (objDataArray->nextIndex >= objDataArray->len) {
+    int newLen = objDataArray->len * 2;
+    objDataArray->data
+      = realloc(objDataArray->data, newLen * objDataArray->typeSize);
+    objDataArray->len = newLen;
   }
   // Must directly copy memory to avoid any casting.
   memcpy (
-    dataArrayAccess(dataArray, dataArray->nextIndex),
-    data, dataArray->typeSize
+    objDataArrayAccess(objDataArray, objDataArray->nextIndex),
+    data, objDataArray->typeSize
   );
-  dataArray->nextIndex++;
-  return dataArray;
+  objDataArray->nextIndex++;
+  return objDataArray;
 }
 
-static inline void dataArrayDispose(DataArray_t* dataArray) {
-  free(dataArray->data);
+static inline void objDataArrayDispose(ObjDataArray_t* objDataArray) {
+  free(objDataArray->data);
 }
 
-static DataArray_t*
-initDataArray (DataArray_t* dataArray, int typeSize, int reserve, void* array) {
-  dataArray->data = array == NULL ? malloc(typeSize * reserve) : array;
-  dataArray->len = reserve;
-  dataArray->nextIndex = 0;
-  dataArray->typeSize = typeSize;
-  return dataArray;
+static ObjDataArray_t*
+initObjDataArray (ObjDataArray_t* objDataArray,
+                  int typeSize, int reserve, void* array) {
+  objDataArray->data = array == NULL ? malloc(typeSize * reserve) : array;
+  objDataArray->len = reserve;
+  objDataArray->nextIndex = 0;
+  objDataArray->typeSize = typeSize;
+  return objDataArray;
 }
 
 // Create some generic parsers
@@ -159,12 +181,19 @@ STANDARD_ARRAY_PARSER(long, strtol(previous, &next, 10))
 
 static SimpleObj_t* newSimpleObj(void) {
   SimpleObj_t* obj = malloc(sizeof (SimpleObj_t));
-  initDataArray(&obj->vertices, sizeof (ObjVertex_t), 100, NULL);
-  initDataArray(&obj->texCoords, sizeof (ObjTexCoord_t), 100, NULL);
-  initDataArray(&obj->normals, sizeof (ObjVertexNormal_t), 100, NULL);
-  initDataArray(&obj->faces, sizeof (DataArray_t), 100, NULL);
-  initDataArray(&obj->lines, sizeof (int*), 100, NULL);
+  initObjDataArray(&obj->vertices, sizeof (ObjVertex_t), 100, NULL);
+  initObjDataArray(&obj->texCoords, sizeof (ObjTexCoord_t), 100, NULL);
+  initObjDataArray(&obj->normals, sizeof (ObjVertexNormal_t), 100, NULL);
+  initObjDataArray(&obj->faces, sizeof (ObjDataArray_t), 100, NULL);
+  // initObjDataArray(&obj->lines, sizeof (int*), 100, NULL);
+  initObjDataArray(&obj->groups, sizeof (ObjGroup_t), 100, NULL);
   return obj;
+}
+
+static inline int fpeek(FILE* file) {
+  int c = fgetc(file);
+  ungetc(c, file);
+  return c;
 }
 
 static long longDataBuffer[4];
@@ -173,7 +202,8 @@ static double dataInputBuffer[4];
 /*
   Load a Wavefront .obj file.
 
-  @param char* a path to a .obj
+  @param char* fileName A path to a .obj
+
   @return SimpleObj_t* a pointer to a loaded .obj
                        or NULL if the file could not be opened.
 */
@@ -188,9 +218,17 @@ SimpleObj_t* loadObj(char* fileName) {
   }
 
   SimpleObj_t* obj = newSimpleObj();
+  // strdup for ease of freeing
+  ObjGroup_t currentGroup = { .name = strdup("Default"),
+                              .startFace = 0,
+                              .endFace = 0,
+                              .render = true };
+
   size_t lineLen;
   char* line = NULL;
   size_t len = 0;
+  // Only set when needed. Does not always contain correct value.
+  bool peekEof = false;
 
   while ((lineLen = getline(&line, &len, obj_fp)) != -1) {
     char* lineType = strtok(line, " ");
@@ -199,10 +237,20 @@ SimpleObj_t* loadObj(char* fileName) {
       /* Junk */
       continue;
     }
-    if (strcmp(lineType, OBJ_COMMENT) == 0) {
-      /* Comments */
-      continue;
-    } else if (strcmp(lineType, OBJ_VERTEX) == 0) {
+    if (strcmp(lineType, OBJ_GROUP) == 0
+                || (peekEof = (fpeek(obj_fp) == EOF))) {
+      /* Groups */
+      if (obj->faces.nextIndex - currentGroup.startFace > 0) {
+        currentGroup.endFace = obj->faces.nextIndex;
+        objDataArrayAppend(&obj->groups, &currentGroup);
+      } else {
+        free(currentGroup.name);
+      }
+      if (!peekEof) {
+        currentGroup.name = strdup(remaining);
+        currentGroup.startFace = obj->faces.nextIndex;
+      } else goto nextCase; // A hack. Continue down the if/else.
+    } else nextCase: if (strcmp(lineType, OBJ_VERTEX) == 0) {
       /* Vertices */
       int vertexLen = parseArray_double(remaining, 4, dataInputBuffer);
       assert(vertexLen == 3 || vertexLen == 4);
@@ -210,7 +258,7 @@ SimpleObj_t* loadObj(char* fileName) {
                              .y = dataInputBuffer[1],
                              .z = dataInputBuffer[2],
                              .w = vertexLen == 4 ? dataInputBuffer[3] : 1 };
-      dataArrayAppend(&obj->vertices, &vertex);
+      objDataArrayAppend(&obj->vertices, &vertex);
     } else if (strcmp(lineType, OBJ_VERTEX_NORMAL) == 0) {
       /* Normals */
       int normalLen = parseArray_double(remaining, 3, dataInputBuffer);
@@ -218,7 +266,7 @@ SimpleObj_t* loadObj(char* fileName) {
       ObjVertexNormal_t normal = { .x = dataInputBuffer[0],
                                    .y = dataInputBuffer[1],
                                    .z = dataInputBuffer[2] };
-      dataArrayAppend(&obj->normals, &normal);
+      objDataArrayAppend(&obj->normals, &normal);
     } else if (strcmp(lineType, OBJ_VERTEX_TEX_CORD) == 0) {
       /* Texture coordinates */
       int textCoordLen = parseArray_double(remaining, 3, dataInputBuffer);
@@ -227,12 +275,12 @@ SimpleObj_t* loadObj(char* fileName) {
                                  .v = dataInputBuffer[1],
                                  .w = textCoordLen > 2
                                         ? dataInputBuffer[2] : 0};
-      dataArrayAppend(&obj->texCoords, &texCoord);
+      objDataArrayAppend(&obj->texCoords, &texCoord);
     } else if (strcmp(lineType, OBJ_FACE) == 0) {
       /* Faces */
-      DataArray_t face = {};
+      ObjDataArray_t face = {};
       // Most faces seem to have at most 4 vertices.
-      initDataArray(&face, sizeof(ObjFaceComponent_t), 4, NULL);
+      initObjDataArray(&face, sizeof(ObjFaceComponent_t), 4, NULL);
       bool vertexAndNormalOnly = strstr(remaining, "//");
       int vnIndexBuff = vertexAndNormalOnly ? 1 : 2;
       char* faceComponentStr = strtok(remaining, " ");
@@ -252,27 +300,37 @@ SimpleObj_t* loadObj(char* fileName) {
                                                   ? longDataBuffer[vnIndexBuff]
                                                   : -1
                                             };
-        dataArrayAppend(&face, &faceComponent);
+        objDataArrayAppend(&face, &faceComponent);
         faceComponentStr = strtok(NULL, " ");
       }
-      dataArrayAppend(&obj->faces, &face);
-    } else {
-      #ifdef DEBUG
-      fprintf(stderr, "Unknown line type '%s'\n", lineType);
-      #endif
+      objDataArrayAppend(&obj->faces, &face);
+      if (peekEof) {
+        // If the last line of the file is a face then the last group will
+        // miss that face unless corrected here.
+        ObjGroup_t* lastGroup
+          = objDataArrayAccess(&obj->groups, obj->groups.nextIndex-1);
+        lastGroup->endFace++;
+      }
     }
+    #ifdef DEBUG
+      else if (strcmp(lineType, OBJ_COMMENT) != 0) {
+      fprintf(stderr, "Unknown line type '%s'\n", lineType);
+    }
+    #endif
   }
+
+  #ifdef DEBUG
+  printf(
+    "obj: vertices %d, texture coords %d, normals %d, faces %d, groups %d\n",
+    obj->vertices.nextIndex,
+    obj->texCoords.nextIndex,
+    obj->normals.nextIndex,
+    obj->faces.nextIndex,
+    obj->groups.nextIndex);
+  #endif
 
   free(line);
   fclose (obj_fp);
-
-  #ifdef DEBUG
-  printf("Loaded obj: vertices %d, texture coords %d, normals %d, faces %d\n",
-          obj->vertices.nextIndex,
-          obj->texCoords.nextIndex,
-          obj->normals.nextIndex,
-          obj->faces.nextIndex);
-  #endif
 
   return obj;
 }
@@ -280,55 +338,63 @@ SimpleObj_t* loadObj(char* fileName) {
 /**
   Freeing allocations & cleaning up after an obj.
 
-  @param SimpleObj_t* a pointer to an obj
+  @param SimpleObj_t* obj A pointer to an obj
 */
 void disposeObj(SimpleObj_t* obj) {
-  dataArrayDispose(&obj->vertices);
-  dataArrayDispose(&obj->texCoords);
-  dataArrayDispose(&obj->normals);
+  objDataArrayDispose(&obj->vertices);
+  objDataArrayDispose(&obj->texCoords);
+  objDataArrayDispose(&obj->normals);
   int f;
   for (f = 0; f < obj->faces.nextIndex; f++) {
-    dataArrayDispose((DataArray_t*)dataArrayAccess(&obj->faces, f));
+    objDataArrayDispose((ObjDataArray_t*)objDataArrayAccess(&obj->faces, f));
   }
-  dataArrayDispose(&obj->faces);
-  dataArrayDispose(&obj->lines);
+  int g;
+  for (g = 0; g < obj->groups.nextIndex; g++) {
+    ObjGroup_t* group = objDataArrayAccess(&obj->groups, g);
+    free(group->name);
+  }
+  objDataArrayDispose(&obj->groups);
+  objDataArrayDispose(&obj->faces);
+  // objDataArrayDispose(&obj->lines);
   free(obj);
 }
 
 #ifdef __GLUT_H__
-
 /**
   Naively drawing a loaded obj.
-  Probably works with more than libglut/libGL but is untested with anything.
+  May work with more than libglut/libGL but is untested with anything else.
 
   @param SimpleObj_t* a pointer to an obj
 */
 void drawObj(SimpleObj_t* obj) {
-  int f;
-  for (f = 0; f < obj->faces.nextIndex; f++) {
-    DataArray_t* face = dataArrayAccess(&obj->faces, f);
-    glBegin(GL_POLYGON);
-    int f_c;
-    for (f_c = 0; f_c < face->nextIndex; f_c++) {
-      ObjFaceComponent_t* faceComp = dataArrayAccess(face, f_c);
-      ObjVertex_t* vertex
-        = dataArrayAccess(&obj->vertices, faceComp->vertexIndex-1);
-      if (faceComp->normalIndex > 0) {
-        ObjVertexNormal_t* normal
-          = dataArrayAccess(&obj->normals, faceComp->normalIndex-1);
-        glNormal3d(normal->x, normal->y, normal->z);
+  int g;
+  for (g = 0; g < obj->groups.nextIndex; g++) {
+    ObjGroup_t* group = objDataArrayAccess(&obj->groups, g);
+    if (!group->render) continue;
+    int f;
+    for (f = group->startFace; f < group->endFace; f++) {
+      ObjDataArray_t* face = objDataArrayAccess(&obj->faces, f);
+      glBegin(GL_POLYGON);
+      int f_c;
+      for (f_c = 0; f_c < face->nextIndex; f_c++) {
+        ObjFaceComponent_t* faceComp = objDataArrayAccess(face, f_c);
+        ObjVertex_t* vertex
+          = objDataArrayAccess(&obj->vertices, faceComp->vertexIndex-1);
+        if (faceComp->normalIndex > 0) {
+          ObjVertexNormal_t* normal
+            = objDataArrayAccess(&obj->normals, faceComp->normalIndex-1);
+          glNormal3d(normal->x, normal->y, normal->z);
+        }
+        if (faceComp->texCoordIndex > 0) {
+          ObjTexCoord_t* texCoord
+            = objDataArrayAccess(&obj->texCoords, faceComp->texCoordIndex-1);
+          glTexCoord3d(texCoord->u, texCoord->v, texCoord->w);
+        }
+        glVertex4d(vertex->x, vertex->y, vertex->z, vertex->w);
       }
-      if (faceComp->texCoordIndex > 0) {
-        ObjTexCoord_t* texCoord
-          = dataArrayAccess(&obj->texCoords, faceComp->texCoordIndex-1);
-        glTexCoord3d(texCoord->u, texCoord->v, texCoord->w);
-      }
-      glVertex4d(vertex->x, vertex->y, vertex->z, vertex->w);
+      glEnd();
     }
-    glEnd();
   }
 }
-
 #endif
-
 #endif
