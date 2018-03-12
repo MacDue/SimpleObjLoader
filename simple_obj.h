@@ -48,6 +48,7 @@ typedef struct ObjFaceComponent {
 
 typedef struct ObjVertex {
   double x, y, z, w;
+  double r,g,b;
 } ObjVertex_t;
 
 typedef struct ObjTexCoord {
@@ -196,8 +197,8 @@ static inline int fpeek(FILE* file) {
   return c;
 }
 
-static long longDataBuffer[4];
-static double dataInputBuffer[4];
+static long longDataBuffer[6];
+static double dataInputBuffer[6];
 
 /*
   Load a Wavefront .obj file.
@@ -252,12 +253,20 @@ SimpleObj_t* loadObj(char* fileName) {
       } else goto nextCase; // A hack. Continue down the if/else.
     } else nextCase: if (strcmp(lineType, OBJ_VERTEX) == 0) {
       /* Vertices */
-      int vertexLen = parseArray_double(remaining, 4, dataInputBuffer);
-      assert(vertexLen == 3 || vertexLen == 4);
+      int vertexLen = parseArray_double(remaining, 9, dataInputBuffer);
+      assert(vertexLen == 3 || vertexLen == 4
+              || ("If coloured vertex" && vertexLen == 6));
       ObjVertex_t vertex = { .x = dataInputBuffer[0],
                              .y = dataInputBuffer[1],
                              .z = dataInputBuffer[2],
-                             .w = vertexLen == 4 ? dataInputBuffer[3] : 1 };
+                             .w = vertexLen == 4 ? dataInputBuffer[3] : 1,
+                             .r = -1, .g = -1, .b = -1};
+      //printf("%d\n", vertexLen);
+      if (vertexLen == 6) {
+        vertex.r = dataInputBuffer[3];
+        vertex.g = dataInputBuffer[4];
+        vertex.b = dataInputBuffer[5];
+      }
       objDataArrayAppend(&obj->vertices, &vertex);
     } else if (strcmp(lineType, OBJ_VERTEX_NORMAL) == 0) {
       /* Normals */
@@ -389,6 +398,9 @@ void drawObj(SimpleObj_t* obj) {
           ObjTexCoord_t* texCoord
             = objDataArrayAccess(&obj->texCoords, faceComp->texCoordIndex-1);
           glTexCoord3d(texCoord->u, texCoord->v, texCoord->w);
+        }
+        if (vertex->r > -1) {
+          glColor3d(vertex->r, vertex->g, vertex->b);
         }
         glVertex4d(vertex->x, vertex->y, vertex->z, vertex->w);
       }
